@@ -1,0 +1,23 @@
+Application Architecture ASCII Diagram:
+
++----------------+      +----------------+      +----------------+
+|                |      |                |      |                |
+|    Client      +----->+  API Gateway   +----->+   Lambda       |
+|                |      |                |      |   Functions    |
++----------------+      +-------+--------+      +-------+--------+
+                                                        |
+                                                        |
+                                                        v
+                        +----------------+      +-------+--------+
+                        |                |      |                |
+                        | Amazon         |<-----+  DynamoDB      |
+                        | Translate      |      |  Table         |
+                        +----------------+      +----------------+
+
+API Endpoints:
+- POST /things (API Key) -> postItem Lambda
+- GET /things/{userId} -> getItems Lambda
+- PUT /things/{userId}/{itemId} (API Key) -> putItem Lambda
+- GET /things/{userId}/{itemId}/translation -> translateItem Lambda -> Amazon Translate
+
+Note: Please replace this file with an actual architecture diagram image. 
