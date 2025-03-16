@@ -1,0 +1,22 @@
+# Node.js dependencies
+node_modules/
+
+# CDK output
+cdk.out/
+
+# TypeScript compiled files
+*.js
+*.d.ts
+!jest.config.js
+
+# IDE and editor folders
+.idea/
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local environment
+.env
+.env.local 
