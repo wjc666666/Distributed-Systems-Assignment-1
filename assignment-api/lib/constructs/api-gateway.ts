@@ -22,7 +22,7 @@ export interface ApiGatewayProps {
 export class ApiGateway extends Construct {
   // 公开 API 实例和 API 密钥，以便其他构造可以访问它们
   public readonly api: apigateway.RestApi;
-  public readonly apiKey: apigateway.ApiKey;
+  public readonly apiKey: apigateway.IApiKey;
   public readonly usagePlan: apigateway.UsagePlan;
 
   constructor(scope: Construct, id: string, props: ApiGatewayProps) {
