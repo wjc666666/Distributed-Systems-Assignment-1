@@ -20,7 +20,7 @@ export interface ApiGatewayProps {
  * Custom construct for API Gateway
  */
 export class ApiGateway extends Construct {
-  // 公开 API 实例和 API 密钥，以便其他构造可以访问它们
+  // Expose API instance and API key for other constructs to access
   public readonly api: apigateway.RestApi;
   public readonly apiKey: apigateway.IApiKey;
   public readonly usagePlan: apigateway.UsagePlan;
@@ -28,7 +28,7 @@ export class ApiGateway extends Construct {
   constructor(scope: Construct, id: string, props: ApiGatewayProps) {
     super(scope, id);
 
-    // 创建带有 CORS 支持的 API Gateway
+    // Create API Gateway with CORS support
     this.api = new apigateway.RestApi(this, 'ItemsApi', {
       restApiName: 'Items Service',
       description: 'This service manages items with translation capabilities',
@@ -44,13 +44,13 @@ export class ApiGateway extends Construct {
       }
     });
 
-    // 创建 API 密钥，用于保护敏感端点（POST 和 PUT）
+    // Create API key for protected endpoints (POST and PUT)
     this.apiKey = this.api.addApiKey('ApiKey', {
       apiKeyName: 'ItemsServiceApiKey',
       description: 'API Key for Items Service'
     });
 
-    // 创建使用计划
+    // Create usage plan
     this.usagePlan = this.api.addUsagePlan('UsagePlan', {
       name: 'Standard',
       description: 'Standard usage plan for Items Service',
@@ -60,22 +60,22 @@ export class ApiGateway extends Construct {
           stage: this.api.deploymentStage
         }
       ],
-      // 添加速率限制以提高安全性
+      // Add rate limiting for additional security
       throttle: {
         rateLimit: 10,
         burstLimit: 20
       }
     });
 
-    // 将 API 密钥添加到使用计划
+    // Add API key to the usage plan
     this.usagePlan.addApiKey(this.apiKey);
 
-    // 定义 API 资源
+    // Define API resources
     const items = this.api.root.addResource('things');
 
-    // POST /things - 创建新项目
+    // POST /things - Create a new item
     items.addMethod('POST', new apigateway.LambdaIntegration(props.postItemFunction), {
-      apiKeyRequired: true, // 需要 API 密钥
+      apiKeyRequired: true, // Requires API key
       methodResponses: [
         {
           statusCode: '201',
@@ -98,7 +98,7 @@ export class ApiGateway extends Construct {
       ]
     });
 
-    // GET /things/{userId} - 获取用户的所有项目，支持可选过滤
+    // GET /things/{userId} - Get all items for a user with optional filtering
     const userItems = items.addResource('{userId}');
     userItems.addMethod('GET', new apigateway.LambdaIntegration(props.getItemsFunction), {
       requestParameters: {
@@ -129,10 +129,10 @@ export class ApiGateway extends Construct {
       ]
     });
 
-    // PUT /things/{userId}/{itemId} - 更新现有项目
+    // PUT /things/{userId}/{itemId} - Update an existing item
     const singleItem = userItems.addResource('{itemId}');
     singleItem.addMethod('PUT', new apigateway.LambdaIntegration(props.putItemFunction), {
-      apiKeyRequired: true, // 需要 API 密钥
+      apiKeyRequired: true, // Requires API key
       methodResponses: [
         {
           statusCode: '200',
@@ -161,7 +161,7 @@ export class ApiGateway extends Construct {
       ]
     });
 
-    // GET /things/{userId}/{itemId}/translation - 获取翻译后的描述
+    // GET /things/{userId}/{itemId}/translation - Get translated description
     const translation = singleItem.addResource('translation');
     translation.addMethod('GET', new apigateway.LambdaIntegration(props.translateItemFunction), {
       requestParameters: {
@@ -195,7 +195,7 @@ export class ApiGateway extends Construct {
       ]
     });
 
-    // 输出 API 终端节点 URL 和 API 密钥 ID
+    // Output API endpoint URL and API key ID
     new cdk.CfnOutput(this, 'ApiEndpoint', {
       value: this.api.url,
       description: 'API Endpoint URL',
