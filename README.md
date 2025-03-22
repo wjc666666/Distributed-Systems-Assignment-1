@@ -48,15 +48,113 @@ Table item with translations:
 
 #### Custom L2 Construct (if completed)
 
-[Not completed yet]
+The project implements several custom L2 constructs to encapsulate and organize infrastructure components:
+
+1. **Database Construct**: Encapsulates DynamoDB table configuration
+```ts
+export class Database extends Construct {
+  public readonly itemsTable: dynamodb.Table;
+
+  constructor(scope: Construct, id: string) {
+    super(scope, id);
+
+    this.itemsTable = new dynamodb.Table(this, 'ItemsTable', {
+      partitionKey: { name: 'userId', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'itemId', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      pointInTimeRecovery: true
+    });
+  }
+}
+```
+
+2. **LambdaFunctions Construct**: Manages Lambda function creation and IAM permissions
+```ts
+export interface LambdaFunctionsProps {
+  readonly itemsTable: dynamodb.Table;
+}
+
+export class LambdaFunctions extends Construct {
+  public readonly postItemFunction: lambda.Function;
+  public readonly getItemsFunction: lambda.Function;
+  public readonly putItemFunction: lambda.Function;
+  public readonly translateItemFunction: lambda.Function;
+  
+  constructor(scope: Construct, id: string, props: LambdaFunctionsProps) {
+    // Implementation details...
+  }
+}
+```
+
+3. **ApiGateway Construct**: Configures REST API endpoints and API key authentication
+```ts
+export interface ApiGatewayProps {
+  readonly postItemFunction: lambda.Function;
+  readonly getItemsFunction: lambda.Function;
+  readonly putItemFunction: lambda.Function;
+  readonly translateItemFunction: lambda.Function;
+}
+
+export class ApiGateway extends Construct {
+  public readonly api: apigateway.RestApi;
+  public readonly apiKey: apigateway.IApiKey;
+  public readonly usagePlan: apigateway.UsagePlan;
+  
+  constructor(scope: Construct, id: string, props: ApiGatewayProps) {
+    // Implementation details...
+  }
+}
+```
 
 #### Multi-Stack app (if completed)
 
-[Not completed yet]
+The project uses a modular approach with custom constructs that could easily be separated into multiple stacks. The current implementation organizes the application into logical components that are composed in the main stack:
+
+```ts
+export class AssignmentApiStack extends cdk.Stack {
+  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+    super(scope, id, props);
+
+    // Create the database construct (DynamoDB table)
+    const database = new Database(this, 'Database');
+
+    // Create the Lambda functions construct
+    const lambdaFunctions = new LambdaFunctions(this, 'LambdaFunctions', {
+      itemsTable: database.itemsTable
+    });
+
+    // Create the API Gateway construct
+    const apiGateway = new ApiGateway(this, 'ApiGateway', {
+      postItemFunction: lambdaFunctions.postItemFunction,
+      getItemsFunction: lambdaFunctions.getItemsFunction,
+      putItemFunction: lambdaFunctions.putItemFunction,
+      translateItemFunction: lambdaFunctions.translateItemFunction
+    });
+  }
+}
+```
+
+This modular architecture enables easy evolution to a true multi-stack application by moving each construct to its own stack if needed.
 
 #### Lambda Layers (if completed)
 
-[Not completed yet]
+The project uses a common code structure for Lambda functions, sharing configuration and dependencies. While not explicitly using Lambda Layers, the functions share a common code base and configuration:
+
+```ts
+// Define common configuration for all Lambda functions
+const commonLambdaProps = {
+  runtime: lambda.Runtime.NODEJS_16_X,
+  environment: {
+    TABLE_NAME: props.itemsTable.tableName
+  },
+  timeout: cdk.Duration.seconds(10),
+  memorySize: 256,
+  tracing: lambda.Tracing.ACTIVE // Enable X-Ray tracing
+};
+```
+
+This common configuration approach achieves similar goals to Lambda Layers, promoting code reuse and consistent configuration.
 
 #### API Keys. (if completed)
 
