@@ -132,12 +132,25 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
       // Check if translation already exists in cache
       const translations = typedItem.translations || {};
       if (translations[targetLanguage]) {
-        // Return cached translation
+        // Return cached translation from the translations map
         return createSuccessResponse(200, {
           ...typedItem,
           translatedDescription: translations[targetLanguage],
           translated: true,
           fromCache: true
+        });
+      }
+      
+      // Also check for the emergency fallback attribute pattern
+      const fallbackAttributeName = 'translatedText_' + targetLanguage;
+      if (typedItem[fallbackAttributeName]) {
+        // Return cached translation from the fallback attribute
+        return createSuccessResponse(200, {
+          ...typedItem,
+          translatedDescription: typedItem[fallbackAttributeName],
+          translated: true,
+          fromCache: true,
+          fallbackCache: true
         });
       }
       
@@ -259,51 +272,66 @@ async function cacheTranslation(
   targetLanguage: string, 
   translatedText: string
 ): Promise<DynamoDB.DocumentClient.UpdateItemOutput> {
-  // Use a more reliable approach to update a possibly non-existent map attribute
-  // This creates the 'translations' map if it doesn't exist, and sets the language-specific translation
-  const updateParams: DynamoDB.DocumentClient.UpdateItemInput = {
-    TableName: TABLE_NAME,
-    Key: {
-      userId,
-      itemId
-    },
-    UpdateExpression: 'SET #translations = if_not_exists(#translations, :empty_map), #translations.#language = :translatedText',
-    ExpressionAttributeNames: {
-      '#translations': 'translations',
-      '#language': targetLanguage
-    },
-    ExpressionAttributeValues: {
-      ':empty_map': {},
-      ':translatedText': translatedText
-    },
-    ReturnValues: 'ALL_NEW'
-  };
-  
   try {
-    console.log('Caching translation with params:', JSON.stringify(updateParams, null, 2));
-    return await dynamoDb.update(updateParams).promise();
-  } catch (error) {
-    console.error('Error caching translation:', error);
+    // First, get the current item to access its current state
+    const getItemParams: DynamoDB.DocumentClient.GetItemInput = {
+      TableName: TABLE_NAME,
+      Key: {
+        userId,
+        itemId
+      }
+    };
     
-    // If the first approach fails, try a simpler alternative
-    // Create a complete new translations object with the current translation
-    const fallbackParams: DynamoDB.DocumentClient.UpdateItemInput = {
+    console.log('Getting current item state:', JSON.stringify(getItemParams, null, 2));
+    const { Item: currentItem } = await dynamoDb.get(getItemParams).promise();
+    
+    if (!currentItem) {
+      throw new Error('Item not found when attempting to cache translation');
+    }
+    
+    // Create a new translations object based on the current state
+    const currentTranslations = (currentItem as ItemData).translations || {};
+    const updatedTranslations = {
+      ...currentTranslations,
+      [targetLanguage]: translatedText
+    };
+    
+    // Update the entire translations object at once
+    const updateParams: DynamoDB.DocumentClient.UpdateItemInput = {
       TableName: TABLE_NAME,
       Key: {
         userId,
         itemId
       },
-      UpdateExpression: 'SET #translations = :translations',
-      ExpressionAttributeNames: {
-        '#translations': 'translations'
-      },
+      UpdateExpression: 'SET translations = :translations',
       ExpressionAttributeValues: {
-        ':translations': { [targetLanguage]: translatedText }
+        ':translations': updatedTranslations
       },
       ReturnValues: 'ALL_NEW'
     };
     
-    console.log('Trying fallback approach with params:', JSON.stringify(fallbackParams, null, 2));
-    return dynamoDb.update(fallbackParams).promise();
+    console.log('Updating with simple approach:', JSON.stringify(updateParams, null, 2));
+    return dynamoDb.update(updateParams).promise();
+  } catch (error) {
+    console.error('Error in cacheTranslation:', error);
+    
+    // In case of any error, try with a very basic approach as last resort
+    const basicParams: DynamoDB.DocumentClient.UpdateItemInput = {
+      TableName: TABLE_NAME,
+      Key: {
+        userId,
+        itemId
+      },
+      // Just store the single translation as a top-level attribute
+      // This completely avoids nested paths and map operations
+      UpdateExpression: 'SET translatedText_' + targetLanguage + ' = :translatedText',
+      ExpressionAttributeValues: {
+        ':translatedText': translatedText
+      },
+      ReturnValues: 'ALL_NEW'
+    };
+    
+    console.log('Trying emergency fallback approach:', JSON.stringify(basicParams, null, 2));
+    return dynamoDb.update(basicParams).promise();
   }
 }
