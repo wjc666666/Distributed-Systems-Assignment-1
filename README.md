@@ -49,7 +49,7 @@ The Item Management System allows users to:
 
 The application uses a serverless architecture with AWS cloud services:
 
-![Architecture Diagram](images/architecture-diagram.png)
+![Architecture Diagram](images/architecture-diagram.txt)
 
 ### Components
 
