@@ -76,6 +76,8 @@ export class LambdaFunctions extends Construct {
     props.itemsTable.grantReadWriteData(this.translateItemFunction);
     
     // Grant Translate permissions to translateItem function
+    // Note: We're explicitly using English as the source language in the Lambda code
+    // to avoid needing comprehend:DetectDominantLanguage permissions
     this.translateItemFunction.addToRolePolicy(new iam.PolicyStatement({
       actions: ['translate:TranslateText'],
       resources: ['*'],

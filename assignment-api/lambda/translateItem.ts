@@ -3,6 +3,11 @@ import { DynamoDB, Translate } from 'aws-sdk';
 
 /**
  * AWS SDK clients for interacting with AWS services
+ * 
+ * Note: This implementation explicitly sets English as the source language
+ * for translations instead of using Amazon Translate's auto-detection feature.
+ * This removes the dependency on Amazon Comprehend's DetectDominantLanguage API
+ * and eliminates the need for additional IAM permissions.
  */
 const dynamoDb = new DynamoDB.DocumentClient();
 const translate = new Translate();
@@ -93,6 +98,7 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
 
     // Get the target language, default to English if not specified
     const targetLanguage = event.queryStringParameters?.language || 'en';
+    console.log(`Translation request from English to ${targetLanguage} for item ${itemId}`);
     
     // Validate the target language parameter
     if (!/^[a-z]{2}(-[A-Z]{2})?$/.test(targetLanguage)) {
@@ -139,15 +145,28 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
       const translatedText = await translateText(typedItem.description, targetLanguage);
       
       // Update the item in DynamoDB to cache the translation
-      const updatedItem = await cacheTranslation(userId, itemId, targetLanguage, translatedText);
-      
-      // Return the translated item
-      return createSuccessResponse(200, {
-        ...updatedItem.Attributes,
-        translatedDescription: translatedText,
-        translated: true,
-        fromCache: false
-      });
+      try {
+        const updatedItem = await cacheTranslation(userId, itemId, targetLanguage, translatedText);
+        
+        // Return the translated item
+        return createSuccessResponse(200, {
+          ...updatedItem.Attributes,
+          translatedDescription: translatedText,
+          translated: true,
+          fromCache: false
+        });
+      } catch (cacheError) {
+        console.error('Error caching translation:', cacheError);
+        
+        // Even if caching fails, we can still return the translation to the user
+        return createSuccessResponse(200, {
+          ...typedItem,
+          translatedDescription: translatedText,
+          translated: true,
+          fromCache: false,
+          cachingError: "Translation was successful but could not be cached for future use"
+        });
+      }
     } catch (dbError) {
       console.error('Database error:', dbError);
       if (dbError instanceof Error) {
@@ -194,14 +213,36 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
  * @returns Translated text
  */
 async function translateText(text: string, targetLanguage: string): Promise<string> {
+  // Explicitly set source language to English to avoid relying on Comprehend's language detection
+  // This prevents the need for comprehend:DetectDominantLanguage permission
   const translateParams: TranslateParams = {
     Text: text,
-    SourceLanguageCode: 'auto', // Automatically detect source language
+    SourceLanguageCode: 'en', // Set to English explicitly instead of 'auto'
     TargetLanguageCode: targetLanguage
   };
   
-  const translationResult = await translate.translateText(translateParams).promise();
-  return translationResult.TranslatedText;
+  try {
+    console.log('Calling Amazon Translate with params:', JSON.stringify(translateParams, null, 2));
+    const translationResult = await translate.translateText(translateParams).promise();
+    console.log('Translation successful:', JSON.stringify(translationResult, null, 2));
+    return translationResult.TranslatedText;
+  } catch (error) {
+    console.error('Amazon Translate API error:', error);
+    
+    // If there's an error, add more detailed diagnostics
+    if (error instanceof Error) {
+      console.error('Error name:', error.name);
+      console.error('Error message:', error.message);
+      
+      // Check if the error is related to unsupported language
+      if (error.name === 'UnsupportedLanguagePairException') {
+        console.error(`Unsupported language pair: English to ${targetLanguage}`);
+      }
+    }
+    
+    // Re-throw the error to be handled by the caller
+    throw error;
+  }
 }
 
 /**
@@ -218,21 +259,51 @@ async function cacheTranslation(
   targetLanguage: string, 
   translatedText: string
 ): Promise<DynamoDB.DocumentClient.UpdateItemOutput> {
+  // Use a more reliable approach to update a possibly non-existent map attribute
+  // This creates the 'translations' map if it doesn't exist, and sets the language-specific translation
   const updateParams: DynamoDB.DocumentClient.UpdateItemInput = {
     TableName: TABLE_NAME,
     Key: {
       userId,
       itemId
     },
-    UpdateExpression: 'SET translations.#language = :translatedText',
+    UpdateExpression: 'SET #translations = if_not_exists(#translations, :empty_map), #translations.#language = :translatedText',
     ExpressionAttributeNames: {
+      '#translations': 'translations',
       '#language': targetLanguage
     },
     ExpressionAttributeValues: {
+      ':empty_map': {},
       ':translatedText': translatedText
     },
     ReturnValues: 'ALL_NEW'
   };
   
-  return dynamoDb.update(updateParams).promise();
+  try {
+    console.log('Caching translation with params:', JSON.stringify(updateParams, null, 2));
+    return await dynamoDb.update(updateParams).promise();
+  } catch (error) {
+    console.error('Error caching translation:', error);
+    
+    // If the first approach fails, try a simpler alternative
+    // Create a complete new translations object with the current translation
+    const fallbackParams: DynamoDB.DocumentClient.UpdateItemInput = {
+      TableName: TABLE_NAME,
+      Key: {
+        userId,
+        itemId
+      },
+      UpdateExpression: 'SET #translations = :translations',
+      ExpressionAttributeNames: {
+        '#translations': 'translations'
+      },
+      ExpressionAttributeValues: {
+        ':translations': { [targetLanguage]: translatedText }
+      },
+      ReturnValues: 'ALL_NEW'
+    };
+    
+    console.log('Trying fallback approach with params:', JSON.stringify(fallbackParams, null, 2));
+    return dynamoDb.update(fallbackParams).promise();
+  }
 }
